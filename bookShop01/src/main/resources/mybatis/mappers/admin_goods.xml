@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+  PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+  "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="mapper.admin.goods">
+
+  <!-- 상품 ResultMap -->
+  <resultMap id="goodsResult" type="goodsVO">
+    <result property="goods_id" column="goods_id" />
+    <result property="goods_title" column="goods_title" />
+    <result property="goods_writer" column="goods_writer" />
+    <result property="goods_price" column="goods_price" />
+    <result property="goods_publisher" column="goods_publisher" />
+    <result property="goods_status" column="goods_status" />
+    <result property="goods_sales_price" column="goods_sales_price" />
+    <result property="goods_published_date" column="goods_published_date" />
+    <result property="goods_total_page" column="goods_total_page" />
+    <result property="goods_isbn" column="goods_isbn" />
+    <result property="goods_delivery_price" column="goods_delivery_price" />
+    <result property="goods_delivery_date" column="goods_delivery_date" />
+    <result property="goods_fileName" column="fileName" />
+    <result property="goods_sort" column="goods_sort" />
+    <result property="goods_writer_intro" column="goods_writer_intro" />
+    <result property="goods_intro" column="goods_intro" />
+    <result property="goods_contents_order" column="goods_contents_order" />
+  </resultMap>
+
+  <!-- 이미지 ResultMap -->
+  <resultMap id="imageResult" type="ImageFileVO">
+    <result property="goods_id" column="goods_id" />
+    <result property="fileName" column="fileName" />
+    <result property="reg_id" column="reg_id" />
+    <result property="image_id" column="image_id" />
+    <result property="fileType" column="fileType" />
+  </resultMap>
+
+  <!-- 주문 ResultMap 예시 (축약) -->
+  <resultMap id="orderGoodsResult" type="OrderVO">
+    <result property="order_id" column="order_id" />
+    <!-- ...생략... -->
+  </resultMap>
+
+  <!-- 상품 등록 -->
+  <insert id="insertNewGoods" parameterType="java.util.Map">
+    INSERT INTO t_shopping_goods (
+      goods_sort, goods_title, goods_writer, goods_publisher,
+      goods_price, goods_sales_price, goods_point,
+      goods_published_date, goods_total_page, goods_isbn,
+      goods_delivery_price, goods_delivery_date, goods_status,
+      goods_writer_intro, goods_intro, goods_publisher_comment,
+      goods_recommendation, goods_contents_order
+    )
+    VALUES (
+      #{goods_sort}, #{goods_title}, #{goods_writer}, #{goods_publisher},
+      #{goods_price}, #{goods_sales_price}, #{goods_point},
+      #{goods_published_date}, #{goods_total_page}, #{goods_isbn},
+      #{goods_delivery_price}, #{goods_delivery_date}, #{goods_status},
+      #{goods_writer_intro}, #{goods_intro}, #{goods_publisher_comment},
+      #{goods_recommendation}, #{goods_contents_order}
+    )
+    <selectKey resultType="int" keyProperty="goods_id" order="AFTER">
+      SELECT LAST_INSERT_ID()
+    </selectKey>
+  </insert>
+
+  <!-- 상품 이미지 등록 -->
+  <insert id="insertGoodsImageFile" parameterType="ImageFileVO">
+    INSERT INTO t_goods_detail_image (
+      goods_id, fileName, fileType, reg_id
+    ) VALUES (
+      #{goods_id}, #{fileName}, #{fileType}, #{reg_id}
+    )
+  </insert>
+
+  <!-- 신상품 조회 (MySQL 8.0 이상) -->
+  <select id="selectNewGoodsList" resultMap="goodsResult" parameterType="java.util.Map">
+    <![CDATA[
+    SELECT *
+    FROM (
+      SELECT 
+        ROW_NUMBER() OVER (ORDER BY goods_creDate DESC) AS recNum,
+        goods_id,
+        goods_title,
+        goods_writer,
+        goods_publisher,
+        goods_sales_price,
+        DATE_FORMAT(goods_creDate, '%Y-%m-%d') AS goods_creDate,
+        DATE_FORMAT(goods_published_date, '%Y-%m-%d') AS goods_published_date
+      FROM t_shopping_goods
+      WHERE DATE_FORMAT(goods_creDate, '%Y-%m-%d') BETWEEN #{beginDate} AND #{endDate}
+    ) AS outer_table
+    WHERE recNum BETWEEN (#{section}-1)*100 + (#{pageNum}-1)*10 + 1
+                  AND (#{section}-1)*100 + (#{pageNum})*10
+    ]]>
+  </select>
+  <!-- MySQL 5.x 이면 ROW_NUMBER 대신 @rownum 방식 사용 필요 -->
+
+  <!-- 주문 상품 리스트 -->
+  <select id="selectOrderGoodsList" resultMap="orderGoodsResult" parameterType="java.util.Map">
+    <![CDATA[
+    SELECT * FROM (
+      SELECT @rownum := @rownum + 1 AS recNum, t.*
+      FROM (
+        SELECT * FROM t_shopping_order
+        WHERE DATE_FORMAT(pay_order_time, '%Y-%m-%d') BETWEEN #{beginDate} AND #{endDate}
+        <if test="search_type=='orderer_id'">
+          AND orderer_id = #{search_word}
+        </if>
+        <if test="search_type=='orderer_name'">
+          AND orderer_name = #{search_word}
+        </if>
+        <if test="search_type=='orderer_hp_num'">
+          AND pay_orderer_hp_num = #{search_word}
+        </if>
+        ORDER BY pay_order_time DESC
+      ) t, (SELECT @rownum := 0) r
+    ) AS result
+    WHERE recNum BETWEEN (#{section} - 1) * 100 + (#{pageNum} - 1) * 10 + 1
+                  AND (#{section} - 1) * 100 + (#{pageNum}) * 10
+    ]]>
+  </select>
+
+  <!-- 상품 상세조회 -->
+  <select id="selectGoodsDetail" parameterType="int" resultMap="goodsResult">
+    SELECT * FROM t_shopping_goods WHERE goods_id = #{goods_id}
+  </select>
+
+  <!-- 상품 이미지 리스트 -->
+  <select id="selectGoodsImageFileList" resultMap="imageResult" parameterType="int">
+    SELECT * FROM t_goods_detail_image
+    WHERE goods_id = #{goods_id}
+    ORDER BY image_id ASC
+  </select>
+
+  <!-- 상품 정보 수정 -->
+  <update id="updateGoodsInfo" parameterType="java.util.HashMap">
+  UPDATE t_shopping_goods
+  <set>
+    <if test="goods_sort != null and goods_sort != ''">
+      goods_sort = #{goods_sort},
+    </if>
+    <if test="goods_title != null and goods_title != ''">
+      goods_title = #{goods_title},
+    </if>
+    <if test="goods_writer != null and goods_writer != ''">
+      goods_writer = #{goods_writer},
+    </if>
+    <if test="goods_publisher != null and goods_publisher != ''">
+      goods_publisher = #{goods_publisher},
+    </if>
+    <if test="goods_price != null and goods_price != ''">
+      goods_price = #{goods_price},
+    </if>
+    <if test="goods_sales_price != null and goods_sales_price != ''">
+      goods_sales_price = #{goods_sales_price},
+    </if>
+    <if test="goods_point != null and goods_point != ''">
+      goods_point = #{goods_point},
+    </if>
+    <if test="goods_published_date != null and goods_published_date != ''">
+      goods_published_date = #{goods_published_date},
+    </if>
+    <if test="goods_total_page != null and goods_total_page != ''">
+      goods_total_page = #{goods_total_page},
+    </if>
+    <if test="goods_isbn != null and goods_isbn != ''">
+      goods_isbn = #{goods_isbn},
+    </if>
+    <if test="goods_delivery_price != null and goods_delivery_price != ''">
+      goods_delivery_price = #{goods_delivery_price},
+    </if>
+    <if test="goods_delivery_date != null and goods_delivery_date != ''">
+      goods_delivery_date = #{goods_delivery_date},
+    </if>
+    <if test="goods_status != null and goods_status != ''">
+      goods_status = #{goods_status},
+    </if>
+    <if test="goods_writer_intro != null and goods_writer_intro != ''">
+      goods_writer_intro = #{goods_writer_intro},
+    </if>
+    <if test="goods_intro != null and goods_intro != ''">
+      goods_intro = #{goods_intro},
+    </if>
+    <if test="goods_contents_order != null and goods_contents_order != ''">
+      goods_contents_order = #{goods_contents_order},
+    </if>
+    <if test="goods_publisher_comment != null and goods_publisher_comment != ''">
+      goods_publisher_comment = #{goods_publisher_comment},
+    </if>
+    <if test="goods_recommendation != null and goods_recommendation != ''">
+      goods_recommendation = #{goods_recommendation},
+    </if>
+  </set>
+  WHERE goods_id = #{goods_id}
+</update>
+
+
+  <!-- 상품 이미지 수정 -->
+  <update id="updateGoodsImage" parameterType="ImageFileVO">
+    UPDATE t_goods_detail_image
+    SET fileName = #{fileName}
+    WHERE goods_id = #{goods_id} AND image_id = #{image_id}
+  </update>
+
+  <!-- 상품 이미지 삭제 -->
+  <delete id="deleteGoodsImage" parameterType="int">
+    DELETE FROM t_goods_detail_image WHERE image_id = #{image_id}
+  </delete>
+
+  <!-- 주문 상품 수정 -->
+  <update id="updateOrderGoods" parameterType="java.util.HashMap">
+    UPDATE t_shopping_order
+    <set>
+      <if test="delivery_state != null and delivery_state != ''">
+        delivery_state = #{delivery_state},
+      </if>
+      <if test="delivery_address != null and delivery_address != ''">
+        delivery_address = #{delivery_address},
+      </if>
+    </set>
+    WHERE order_id = #{order_id}
+  </update>
+
+</mapper>
